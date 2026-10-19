@@ -386,14 +386,12 @@ final class WebProxyWebViewCarrier: NSObject, WKNavigationDelegate, WKUIDelegate
         decisionHandler(.deny)
     }
 
-    /// Not macOS-only, and not optional: from iOS 18.4 this delegate exists on iOS too, and
-    /// WebKit documents that NOT implementing it there makes the view "match the file upload
-    /// behavior of Safari" - i.e. present a picker. Returning no URLs is the documented way
-    /// to act as if the user cancelled.
-    @available(macOS 10.12, iOS 18.4, *)
+    #if os(macOS)
+    @available(macOS 10.12, *)
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
         completionHandler(nil)
     }
+    #endif
 
     private func isAllowed(url: URL?) -> Bool {
         guard let url,
