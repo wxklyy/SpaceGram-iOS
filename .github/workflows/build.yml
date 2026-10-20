@@ -1,4 +1,4 @@
-name: Fast SpaceGram IPA Generator
+name: Build Clean SpaceGram IPA
 
 on:
   workflow_dispatch:
@@ -6,55 +6,65 @@ on:
     branches: [ master ]
 
 jobs:
-  patch-and-package:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: macos-15
 
     steps:
-      - name: Download Official Telegram IPA
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: '0'
+
+      - name: Setup Build Environment
         run: |
-          echo "[*] Downloading official Telegram iOS package..."
-          curl -sL -o Telegram.ipa "https://github.com/TelegramMessenger/Telegram-iOS/releases/download/build-26855/Telegram.ipa"
-          ls -lh Telegram.ipa
+          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          brew install bazelisk yasm ninja cmake
 
-      - name: Unpack and Apply SpaceGram Branding
+      - name: Apply SpaceGram Clean Branding
         run: |
-          echo "[*] Extracting IPA..."
-          unzip -q Telegram.ipa
-          
-          APP_PATH="Payload/Telegram.app"
-          
-          echo "[*] Modifying Info.plist branding..."
-          python3 - << 'EOF'
-          import plistlib
-          import os
+          set -x
+          echo "[*] Branding Telegram to SpaceGram..."
+          python3 rename_to_spacegram.py --repo-dir .
 
-          plist_path = "Payload/Telegram.app/Info.plist"
-          with open(plist_path, "rb") as f:
-              pl = plistlib.load(f)
+      - name: Create Canonical Build Path
+        run: |
+          set -x
+          sudo mkdir -p /Users/Shared
+          cp -R $GITHUB_WORKSPACE /Users/Shared/
+          mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
 
-          pl["CFBundleDisplayName"] = "SpaceGram"
-          pl["CFBundleName"] = "SpaceGram"
+      - name: Compile SpaceGram IPA
+        run: |
+          set -x
+          SOURCE_DIR=/Users/Shared/telegram-ios
+          BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
+          cd $SOURCE_DIR
 
-          with open(plist_path, "wb") as f:
-              plistlib.dump(pl, f)
+          export APP_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["app"]);')
+          export COMMIT_COUNT=$(git rev-list --count HEAD)
+          export BUILD_NUMBER="$COMMIT_COUNT"
 
-          print("[+] Successfully changed CFBundleDisplayName and CFBundleName to SpaceGram")
-          EOF
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          python3 -u build-system/Make/Make.py \
+            --overrideXcodeVersion \
+            --bazelUserRoot="$BAZEL_USER_ROOT" \
+            build \
+            --configurationPath="build-system/appstore-configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
 
-          # Patch localizations (.lproj)
-          find Payload/Telegram.app -name "InfoPlist.strings" | while read -r f; do
-            sed -i 's/"CFBundleDisplayName" = ".*"/"CFBundleDisplayName" = "SpaceGram"/g' "$f" 2>/dev/null || true
+          OUTPUT_PATH="build/artifacts"
+          rm -rf "$OUTPUT_PATH"
+          mkdir -p "$OUTPUT_PATH"
+          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
+            cp "$f" "$OUTPUT_PATH/SpaceGram.ipa"
           done
 
-      - name: Package SpaceGram.ipa
-        run: |
-          echo "[*] Zipping modified Payload into SpaceGram.ipa..."
-          zip -qr SpaceGram.ipa Payload
-          ls -lh SpaceGram.ipa
-
-      - name: Upload SpaceGram IPA
+      - name: Upload Clean SpaceGram IPA
         uses: actions/upload-artifact@v4
         with:
-          name: SpaceGram-iOS-Ready
-          path: SpaceGram.ipa
+          name: SpaceGram-Clean-IPA
+          path: /Users/Shared/telegram-ios/build/artifacts/SpaceGram.ipa
           if-no-files-found: error
