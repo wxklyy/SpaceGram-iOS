@@ -16,9 +16,12 @@ jobs:
           submodules: 'recursive'
           fetch-depth: '0'
 
-      - name: Setup Build Environment
+      - name: Setup Build Environment & Download Simulator Runtime
         run: |
+          set -x
           sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          echo "[*] Downloading iOS Simulator platform for actool..."
+          sudo xcodebuild -downloadPlatform iOS || true
           brew install bazelisk yasm ninja cmake
 
       - name: Apply SpaceGram Clean Branding
